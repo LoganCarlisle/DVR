@@ -1,0 +1,43 @@
+
+@wp.kernel
+def volumetric_trace(
+    # Scene Data
+    grid: wp.uint64, # uses a hash grid
+    drop_positions: wp.array(dtype=wp.vec3),
+    drop_learnable_params: wp.array(dtype=wp.float32, ndim=2),
+
+    # Input/Output
+    initial_rays: wp.array(dtype=Ray),
+    outputs: wp.array(dtype=wp.float32),
+
+    # Kernel Parameters
+    num_steps: wp.int32,
+    step_size: wp.float32,
+    query_radius: wp.float32
+):
+    tid = wp.tid()
+    ray = initial_rays[tid]
+    accumulated_radiance = wp.float32(0.0)
+
+    for i in range(num_steps):
+        t = wp.float32(i) * step_size
+        sample_pos = ray.origin + ray.dir * t
+
+        query = wp.hash_grid_query(grid, sample_pos, query_radius)
+        candidate_index = wp.int32(0)
+        
+        local_radiance = wp.float32(0.0)
+
+        # Loop over neighbors found by the query
+        while wp.hash_grid_query_next(query, candidate_index):
+            drop_weight = drop_learnable_params[candidate_index, 0]
+            drop_energy = drop_learnable_params[candidate_index, 1]
+            drop_sigma  = drop_learnable_params[candidate_index, 2]
+
+            influence = influence_func(sample_pos, drop_positions[candidate_index], drop_sigma)
+            contribution = influence * drop_weight * drop_energy
+            local_radiance += contribution
+        
+        accumulated_radiance += local_radiance * step_size
+    
+    outputs[tid] = accumulated_radiance
