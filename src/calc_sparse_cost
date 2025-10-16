@@ -1,0 +1,28 @@
+@wp.kernel
+def calculate_sparsity_cost(
+    # Same inputs as the main kernel to trace the same paths
+    grid: wp.uint64,
+    initial_rays: wp.array(dtype=Ray),
+    
+    # Output
+    total_neighbor_interactions: wp.array(dtype=wp.int32),
+
+    # Kernel Parameters
+    num_steps: wp.int32,
+    step_size: wp.float32,
+    query_radius: wp.float32
+):
+    tid = wp.tid()
+    ray = initial_rays[tid]
+
+    for i in range(num_steps):
+        t = wp.float32(i) * step_size
+        sample_pos = ray.origin + ray.dir * t
+
+        query = wp.hash_grid_query(grid, sample_pos, query_radius)
+        candidate_index = wp.int32(0)
+        
+        # Loop over neighbors and just count them
+        while wp.hash_grid_query_next(query, candidate_index):
+            # Atomically increment a global counter for each interaction
+            wp.atomic_add(total_neighbor_interactions, 0, 1)
